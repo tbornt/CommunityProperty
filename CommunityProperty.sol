@@ -1,6 +1,25 @@
 pragma solidity ^0.4.18;
 
-contract CommunityProperty {
+contract SafeMath {
+  function safeMul(uint a, uint b) pure internal returns (uint) {
+    uint c = a * b;
+    assert(a == 0 || c / a == b);
+    return c;
+  }
+
+  function safeSub(uint a, uint b) pure internal returns (uint) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  function safeAdd(uint a, uint b) pure internal returns (uint) {
+    uint c = a + b;
+    assert(c>=a && c>=b);
+    return c;
+  }
+}
+
+contract CommunityProperty is SafeMath {
 
     event Deposit(address _who, uint amount);
     event Withdraw(address _who, uint amount);
@@ -88,11 +107,11 @@ contract CommunityProperty {
         require(getBalance(_who) >= amount);
         Member storage who = relations[_who];
         if (who.balance >= amount) {
-            who.balance -= amount;
+            who.balance = safeSub(who.balance, amount);
         } else {
-            uint left = amount - who.balance;
+            uint left = safeSub(amount, who.balance);
             who.balance = 0;
-            relations[who.relationshipInfo.partner].balance -= left;
+            relations[who.relationshipInfo.partner].balance = safeSub(relations[who.relationshipInfo.partner].balance, left);
         }
         UpdateBalance(_who, amount);
     }
@@ -103,7 +122,7 @@ contract CommunityProperty {
     function deposit() payable public {
         Member storage who = relations[msg.sender];
         uint value = msg.value;
-        who.balance += value;
+        who.balance = safeAdd(who.balance, value);
         Deposit(msg.sender, value);
     }
 
@@ -120,20 +139,22 @@ contract CommunityProperty {
                 if (now <= partner.transferInfo.allowedTime + partner.transferInfo.timeLimit * 1 hours) {
                     if (_amount <= partner.transferInfo.amount && _amount <= totalBalance) {
                         updateBalance(msg.sender, _amount);
-                        partner.transferInfo.amount -= _amount;
+                        partner.transferInfo.amount = safeSub(partner.transferInfo.amount, _amount);
                         msg.sender.transfer(_amount);
                         Withdraw(msg.sender, _amount);
                     }
                     else if (_amount > partner.transferInfo.amount && _amount <= totalBalance) {
                         updateBalance(msg.sender, partner.transferInfo.amount);
                         partner.transferInfo.allowed = false;
+                        partner.transferInfo.amount = 0;
                         msg.sender.transfer(partner.transferInfo.amount);
                         WithdrawAllowedAmount(msg.sender, partner.transferInfo.amount);
                     }
                     else {
                         updateBalance(msg.sender, totalBalance);
+                        partner.transferInfo.allowed = false;
+                        partner.transferInfo.amount = 0;
                         msg.sender.transfer(totalBalance);
-                        partner.transferInfo.amount -= _amount;
                         WithdrawTotal(msg.sender, totalBalance);
                     }
                 }
@@ -149,7 +170,7 @@ contract CommunityProperty {
         //no relations, withdraw directly
         else {
             if (sender.balance >= _amount) {
-                sender.balance = sender.balance - _amount;
+                sender.balance = safeSub(sender.balance, _amount);
                 msg.sender.transfer(_amount);
                 Withdraw(msg.sender, _amount);
             }
@@ -191,14 +212,14 @@ contract CommunityProperty {
             partner.relationshipInfo.built = false;
             uint left = 0;
             if (sender.balance >= totalBalance / 2) {
-                left = sender.balance - totalBalance / 2;
-                sender.balance -= left;
-                partner.balance += left;
+                left = safeSub(sender.balance, totalBalance / 2);
+                sender.balance = safeSub(sender.balance, left);
+                partner.balance = safeAdd(partner.balance, left);
             }
             else {
-                left = totalBalance / 2 - sender.balance;
-                sender.balance += left;
-                partner.balance -= left;
+                left = safeSub(totalBalance / 2, sender.balance);
+                sender.balance = safeAdd(sender.balance, left);
+                partner.balance = safeSub(partner.balance, left);
             }
             AllowBreakDown();
         }
@@ -230,13 +251,13 @@ contract CommunityProperty {
             return who.balance;
         }
         else {
-            return who.balance + relations[who.relationshipInfo.partner].balance;
+            return safeAdd(who.balance, relations[who.relationshipInfo.partner].balance);
         }
     }
 
-    function showAllInfo() external view {
+    function showAllInfo() external view returns(address, uint, address, bool, bool, uint, uint, bool, uint, uint, uint) {
         Member storage sender = relations[msg.sender];
-        balance = getBalance(msg.sender);
+        uint balance = getBalance(msg.sender);
         return (msg.sender,
                 balance,
                 sender.relationshipInfo.partner,
@@ -247,7 +268,7 @@ contract CommunityProperty {
                 sender.transferInfo.allowed,
                 sender.transferInfo.amount,
                 sender.transferInfo.allowedTime,
-                sender.transferInfo.timeLimit)
+                sender.transferInfo.timeLimit);
     }
 
 }
